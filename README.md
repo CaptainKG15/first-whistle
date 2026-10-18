@@ -28,6 +28,7 @@ The one question that code cannot answer is "do these two scoops report the same
 - `python3 tests/test_first_whistle.py`: 100 off-chain checks. A stand-in network replaces the real one, so they test the contract's logic, not the model.
 - `python3 tests/mutation_test.py`: breaks the contract in 51 small ways and confirms the tests fail each time. **51 of 51 caught.** One of the breaks (allowing a self-reference in the grouping) made the chain-resolving loop hang, which led to bounding that loop so malformed input can no longer hang it.
 - The page's commitment hash was checked against the contract's for accented text and mixed-case addresses: identical.
+- One real round on Studio with real validators: six scoops became four stories as designed, including a loan and a permanent move for the same player kept apart (see `RESULTS.md`). One run is not a failure rate.
 
 ## Honest limits
 - The model decides "same story". It can group two different stories or split one, and the one-entry tolerance means validators may differ slightly. This is tested only with a stand-in, so see `RESULTS.md` for what has been observed on a real network.
