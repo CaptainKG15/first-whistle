@@ -29,6 +29,7 @@ The one question that code cannot answer is "do these two scoops report the same
 - `python3 tests/mutation_test.py`: breaks the contract in 51 small ways and confirms the tests fail each time. **51 of 51 caught.** One of the breaks (allowing a self-reference in the grouping) made the chain-resolving loop hang, which led to bounding that loop so malformed input can no longer hang it.
 - The page's commitment hash was checked against the contract's for accented text and mixed-case addresses: identical.
 - One real round on Studio with real validators: six scoops became four stories as designed, including a loan and a permanent move for the same player kept apart (see `RESULTS.md`). One run is not a failure rate.
+- One real round on Bradbury with a real wallet: three scoops, two stories, as designed (see `RESULTS.md`).
 
 ## Honest limits
 - The model decides "same story". It can group two different stories or split one, and the one-entry tolerance means validators may differ slightly. This is tested only with a stand-in, so see `RESULTS.md` for what has been observed on a real network.
@@ -45,7 +46,7 @@ Host the folder on GitHub Pages and open `app/index.html`.
 
 `build_app.py` rebuilds the page from `app/index.src.html` with the contract embedded. If a run stops (for example on a network error) press **Run the whole round** again: it checks the chain before every step, retries transient errors, and continues from where it stopped, using the scoops and secret salts saved in this browser. A round started in a different browser cannot be continued, because its salts are not there.
 
-`tests/ui_test.js` checks the page in a browser against a simulated chain and a pretend wallet (27 checks, including network errors, a step that applied before reporting an error, and a stopped run being resumed); it does not use a real network.
+`tests/ui_test.js` checks the page in a browser against a simulated chain and a pretend wallet (28 checks, including network errors, a step that applied before reporting an error, a stopped run being resumed, and a brand-new contract that cannot be read yet); it does not use a real network.
 
 ## Files
 - `contracts/first_whistle.py`: the contract, 8,481 bytes, SHA-256 `4e120730e97fef41ee53ad8797acfca863e5409521c9d6f1040c000a64279945`

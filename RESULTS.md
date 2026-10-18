@@ -46,5 +46,28 @@ What this shows and does not show:
 - It is **one run** of six scoops. It says nothing about how often validators disagree, about other wordings, or about longer rounds. From outside, it cannot be told whether the one-entry tolerance was needed.
 - Bradbury has not been run.
 
-## Bradbury: open
-The page can run a round there: the owner's wallet sends 0.002 test GEN to each throwaway reporter key, and the reporters then commit and reveal from those keys. This path has been tested against a simulated chain and a pretend wallet only; nobody has used it with a real wallet.
+## Bradbury: a full round with real validators and a real wallet (worked)
+Contract `0xdb04f22724fB8293eFC53C30CeDeF53EA527690c`, deployed from the page with a browser wallet (8,481 bytes, SHA-256 starting `4e120730e97fef41`). Three reporters, each a throwaway key funded with 0.002 test GEN from the wallet. Times are the page's clock.
+
+| Time | Event |
+|---|---|
+| 9:45:17 | round deployed (about 20 seconds after the click) |
+| 9:45:26 to 9:45:39 | three funding transfers of 0.002 test GEN sent and arrived |
+| 9:46:06 | owner opened the round |
+| 9:46:17 to 9:46:54 | three commitments accepted; the round moved to the reveal phase when it filled |
+| 9:47:09 to 9:47:53 | three reveals accepted |
+| 9:47:57 | owner asked the validators to settle |
+| 9:48:18 | settle accepted (about 21 seconds) |
+| 9:48:19 | settled: 2 first to report, 1 duplicate |
+
+| # | Reporter | Scoop | Result |
+|---|---|---|---|
+| 1 | Ana Rivers | Marco Valenti set to join Harbor City on a five-year deal | FIRST |
+| 2 | Tom Hale | Harbor City agree fee for striker Marco Valenti, medical tomorrow | DUPLICATE OF #1 |
+| 3 | Priya Nair | Kai Okonkwo to Northgate Rovers on loan until June | FIRST |
+
+From deploy to settled took about three minutes. The throwaway reporter keys paid their own gas on Bradbury, so the funding approach works with a real wallet.
+
+**One rough edge.** Right after the deploy the tape showed `ERROR: Requested resource not found.` The page had read the brand-new contract before the network could serve it. It was harmless and the run continued, but it should not appear on a successful deploy. The page now treats that as a transient error and retries the read; a browser check covers it against a simulated chain only.
+
+What this shows and does not show: the whole flow works on Bradbury with real validators and a real wallet, and the grouping is the intended one. It is one run of three scoops. It says nothing about how often validators disagree or about longer rounds.

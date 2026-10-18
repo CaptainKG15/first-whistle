@@ -14,6 +14,7 @@ export function createClient(o) { const me = meOf(o); return {
   deployContract: async () => { chainState.owner = me; return "0x" + "8".repeat(64); },
   waitForTransactionReceipt: async () => ({ data: { contract_address: "0x" + "d".repeat(40) } }),
   readContract: async ({ functionName: f, args }) => {
+    if (globalThis.__notFound > 0) { globalThis.__notFound--; throw new Error("Requested resource not found."); }
     if (f === "get_round") { const e = chainState.entries; return map({ owner: chainState.owner, topic: chainState.topic, phase: chainState.phase, limit: BigInt(chainState.limit), count: BigInt(e.length), revealed: 0n, unique: BigInt(e.filter((x) => x.state === "unique").length), duplicates: BigInt(e.filter((x) => x.state === "duplicate").length) }); }
     if (f === "get_entry") { const x = chainState.entries[Number(args[0])]; return map({ index: args[0], author: x.author, state: x.state, claim: x.claim, dup_of: BigInt(x.dup_of), commitment: x.commitment }); } },
   writeContract: async ({ functionName: f, args }) => {
@@ -94,5 +95,7 @@ let bad = 0; const ok = (n, c, x = "") => { console.log((c ? "PASS " : "FAIL ") 
   q = await open(b); await q.goto(url); await q.waitForTimeout(400); await q.click("#bDeploy"); await q.waitForTimeout(500); await q.evaluate(() => { localStorage.clear(); });
   await q.evaluate(() => { const s = globalThis.__chain; s.limit = 6; s.entries.push({ author: "0x" + "5".repeat(40), commitment: "x", claim: "", state: "committed", dup_of: -1 }); s.slot["0x" + "5".repeat(40)] = 0; }); await q.click("#bRun"); await q.waitForTimeout(800);
   ok("a round started somewhere else is refused with a clear reason", (await txt(q, "#log")).includes("started somewhere else"));
+  q = await open(b); await q.addInitScript(() => { window.__fastSleep = true; }); await q.goto(url); await q.waitForTimeout(400); await q.evaluate(() => { globalThis.__notFound = 2; }); await q.click("#bDeploy"); await q.waitForTimeout(1500);
+  ok("a brand-new contract that is not readable yet is retried, with no error shown", !(await txt(q, "#log")).includes("ERROR") && (await txt(q, "#log")).includes("hiccuped") && (await txt(q, "#rPhase")) === "commit", (await txt(q, "#rPhase")));
   console.log(bad ? "\n" + bad + " FAILED" : "\nall checks passed"); await b.close(); process.exit(bad ? 1 : 0);
 })();

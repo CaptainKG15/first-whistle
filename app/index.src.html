@@ -156,7 +156,7 @@ async function getOwner() {
   session = { net, client, address, eth: window.ethereum }; $("who").textContent = (net === "studionet" ? "Owner key (throwaway, Studio): " : "Wallet (owner): ") + address; return session;
 }
 function plain(v) { if (v instanceof Map) { const o = {}; for (const [k, x] of v) o[String(k)] = plain(x); return o; } if (typeof v === "bigint") return v.toString(); if (Array.isArray(v)) return v.map(plain); if (v && typeof v === "object") { const o = {}; for (const k of Object.keys(v)) o[k] = plain(v[k]); return o; } return v; }
-const transient = (e) => /unknown RPC error|timed out|timeout|failed to fetch|network|ECONN|50[234]|rate limit/i.test(String((e && (e.shortMessage || e.message)) || e));
+const transient = (e) => /unknown RPC error|resource not found|timed out|timeout|failed to fetch|network|ECONN|50[234]|rate limit/i.test(String((e && (e.shortMessage || e.message)) || e));
 async function retrying(label, f, tries = 4) { for (let i = 0; ; i++) { try { return await f(); } catch (e) { if (!transient(e) || i >= tries - 1) throw e; say(label + ": the network hiccuped, trying again"); await sleep(2500 * (i + 1)); } } }
 async function read(fn, args = []) { await load(); const c = sdk.createClient({ chain: chain() }); return retrying("read " + fn, async () => plain(await c.readContract({ address: contract(), functionName: fn, args }))); }
 async function send(client, fn, args, label) {
