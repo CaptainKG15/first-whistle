@@ -42,7 +42,9 @@ Host the folder on GitHub Pages and open `app/index.html`.
 - **Studio (no wallet):** press **Deploy a new round**, then **Run the whole round**. Six simulated reporters, each a throwaway key, commit, reveal, and the validators settle it.
 - **Bradbury (a browser wallet and a little test GEN):** connect through **Deploy a new round**, which makes your wallet the owner. Pick 3 or 6 reporters, press **Fund the reporters** (it sends 0.002 test GEN to each throwaway reporter key so they can pay gas, one wallet approval each), then **Run the whole round**. Allow about five minutes for three reporters. Whatever the reporters do not spend stays in their keys, a few thousandths of test GEN.
 
-`build_app.py` rebuilds the page from `app/index.src.html` with the contract embedded. `tests/ui_test.js` checks the page in a browser against a simulated chain and a pretend wallet (16 checks); it does not use a real network.
+`build_app.py` rebuilds the page from `app/index.src.html` with the contract embedded. If a run stops (for example on a network error) press **Run the whole round** again: it checks the chain before every step, retries transient errors, and continues from where it stopped, using the scoops and secret salts saved in this browser. A round started in a different browser cannot be continued, because its salts are not there.
+
+`tests/ui_test.js` checks the page in a browser against a simulated chain and a pretend wallet (27 checks, including network errors, a step that applied before reporting an error, and a stopped run being resumed); it does not use a real network.
 
 ## Files
 - `contracts/first_whistle.py`: the contract, 8,481 bytes, SHA-256 `4e120730e97fef41ee53ad8797acfca863e5409521c9d6f1040c000a64279945`

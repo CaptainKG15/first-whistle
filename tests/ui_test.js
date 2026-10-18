@@ -2,7 +2,7 @@
 //   python3 -m http.server 8124   (from the project root), then   node tests/ui_test.js
 const { chromium } = require("playwright");
 const STUB = `
-const chainState = globalThis.__chain = { phase: "commit", topic: "football transfer news", limit: 12, owner: null, entries: [], slot: {} };
+const chainState = globalThis.__chain = globalThis.__chain || { phase: "commit", topic: "football transfer news", limit: 12, owner: null, entries: [], slot: {} };
 async function sha(s) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join(""); }
 const story = (t) => /valenti/i.test(t) ? "A" : /okonkwo/i.test(t) && /permanent/i.test(t) ? "C" : /okonkwo/i.test(t) ? "B" : "V:" + t;
 const map = (o) => new Map(Object.entries(o));
@@ -17,11 +17,14 @@ export function createClient(o) { const me = meOf(o); return {
     if (f === "get_round") { const e = chainState.entries; return map({ owner: chainState.owner, topic: chainState.topic, phase: chainState.phase, limit: BigInt(chainState.limit), count: BigInt(e.length), revealed: 0n, unique: BigInt(e.filter((x) => x.state === "unique").length), duplicates: BigInt(e.filter((x) => x.state === "duplicate").length) }); }
     if (f === "get_entry") { const x = chainState.entries[Number(args[0])]; return map({ index: args[0], author: x.author, state: x.state, claim: x.claim, dup_of: BigInt(x.dup_of), commitment: x.commitment }); } },
   writeContract: async ({ functionName: f, args }) => {
+    if (globalThis.__failBefore > 0) { globalThis.__failBefore--; throw new Error("An unknown RPC error occurred."); }
+    if (f === "commit" && globalThis.__hardAtCommit) { globalThis.__commitCalls = (globalThis.__commitCalls || 0) + 1; if (globalThis.__commitCalls === globalThis.__hardAtCommit) { globalThis.__hardAtCommit = 0; throw new Error("boom: the validators refused"); } }
     const s = chainState;
     if (f === "configure") { if (me !== s.owner) throw new Error("owner only"); s.topic = args[0]; s.limit = Number(args[1]); }
     else if (f === "commit") { if (s.phase !== "commit") throw new Error("not accepting"); if (s.slot[me] !== undefined) throw new Error("repeated"); s.slot[me] = s.entries.length; s.entries.push({ author: me, commitment: args[0], claim: "", state: "committed", dup_of: -1 }); if (s.entries.length === s.limit) s.phase = "reveal"; }
     else if (f === "reveal") { if (s.phase !== "reveal") throw new Error("cannot reveal now"); const e = s.entries[s.slot[me]]; if (await sha(args[0] + "|" + args[1] + "|" + me.toLowerCase()) !== e.commitment) throw new Error("does not match the commitment"); e.claim = args[0]; e.state = "revealed"; }
     else if (f === "settle") { if (s.phase !== "reveal") throw new Error("not in the reveal phase"); const seen = {}; s.entries.forEach((e, i) => { if (e.state !== "revealed") { e.state = "void"; return; } const k = story(e.claim); if (seen[k] === undefined) { seen[k] = i; e.state = "unique"; } else { e.state = "duplicate"; e.dup_of = seen[k]; } }); s.phase = "settled"; }
+    if (globalThis.__applyThenFail) { globalThis.__applyThenFail = false; throw new Error("An unknown RPC error occurred."); }
     return "0x" + "7".repeat(64); } }; }
 export const studionet = {}; export const testnetBradbury = {}; export const TransactionStatus = { ACCEPTED: "ACCEPTED" };`;
 const WALLET = "0xa82b922E107b75f374D36946Cd446613bF38f522"; const balances = {};
@@ -72,5 +75,24 @@ let bad = 0; const ok = (n, c, x = "") => { console.log((c ? "PASS " : "FAIL ") 
   // phone
   const m = await open(b, { wallet: true, w: 390, h: 844 }); await m.goto(url + "?network=bradbury"); await m.waitForTimeout(700);
   ok("phone: no sideways scrolling", await m.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
+  // resilience on Studio: transient errors, an error after a step applied, and a hard stop that is resumed
+  const fresh = async () => { const q = await open(b); await q.addInitScript(() => { window.__fastSleep = true; }); await q.goto(url); await q.waitForTimeout(400); await q.click("#bDeploy"); await q.waitForTimeout(500); return q; };
+  const pills = async (q) => (await q.locator(".tick .pill").allTextContents()).join("|"); const GOOD = "FIRST|DUPLICATE OF #1|FIRST|DUPLICATE OF #1|FIRST|FIRST";
+  let q = await fresh(); await q.evaluate(() => { globalThis.__failBefore = 3; }); await q.click("#bRun"); await q.waitForTimeout(6000);
+  ok("three network errors in a row are retried and the round still settles", (await pills(q)) === GOOD, await pills(q)); ok("the tape says it retried", (await txt(q, "#log")).includes("hiccuped"));
+  q = await fresh(); await q.evaluate(() => { globalThis.__applyThenFail = true; }); await q.click("#bRun"); await q.waitForTimeout(6000);
+  ok("an error after a step already applied does not cause a double step", (await pills(q)) === GOOD && (await q.evaluate(() => globalThis.__chain.entries.length)) === 6, await pills(q));
+  ok("the page noticed the step was already done", (await txt(q, "#log")).includes("already done"));
+  q = await fresh(); await q.evaluate(() => { globalThis.__hardAtCommit = 3; }); await q.click("#bRun"); await q.waitForTimeout(2500);
+  ok("a hard failure stops the run and says how to continue", (await txt(q, "#log")).includes("Press Run the whole round again") && (await q.evaluate(() => globalThis.__chain.entries.length)) === 2);
+  ok("the sealed entries are still shown after the stop", (await q.locator(".tick.committed").count()) === 2);
+  await q.fill("#scoop0", "SOMETHING COMPLETELY DIFFERENT THAT WOULD BREAK THE HASH"); await q.click("#bRun"); await q.waitForTimeout(6000);
+  ok("pressing Run again continues and settles", (await pills(q)) === GOOD, await pills(q));
+  ok("each reporter committed exactly once", (await q.evaluate(() => new Set(globalThis.__chain.entries.map((e) => e.author)).size)) === 6);
+  ok("the resumed run used the original scoop, not the edited one", (await q.evaluate(() => globalThis.__chain.entries[0].claim)).startsWith("Marco Valenti"));
+  ok("no page errors in the resilience runs", q.errs.length === 0, q.errs.join("; "));
+  q = await open(b); await q.goto(url); await q.waitForTimeout(400); await q.click("#bDeploy"); await q.waitForTimeout(500); await q.evaluate(() => { localStorage.clear(); });
+  await q.evaluate(() => { const s = globalThis.__chain; s.limit = 6; s.entries.push({ author: "0x" + "5".repeat(40), commitment: "x", claim: "", state: "committed", dup_of: -1 }); s.slot["0x" + "5".repeat(40)] = 0; }); await q.click("#bRun"); await q.waitForTimeout(800);
+  ok("a round started somewhere else is refused with a clear reason", (await txt(q, "#log")).includes("started somewhere else"));
   console.log(bad ? "\n" + bad + " FAILED" : "\nall checks passed"); await b.close(); process.exit(bad ? 1 : 0);
 })();

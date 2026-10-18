@@ -123,7 +123,7 @@ const REPORTERS = [
 let net = "studionet", sdk, chains, types, session, keys = null, running = false;
 const say = (t) => { $("log").textContent += "\n" + new Date().toLocaleTimeString() + "  " + t; $("log").scrollTop = 1e9; };
 const short = (a) => (a && a.length > 12 ? a.slice(0, 6) + "..." + a.slice(-4) : a || "");
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => setTimeout(r, window.__fastSleep ? 5 : ms));
 function el(tag, props = {}, kids = []) { const n = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else n[k] = v; } for (const c of [].concat(kids)) n.append(c); return n; }
 // the commitment must match the contract exactly: sha256("claim|salt|sender") with the sender in lower case
 async function sha256hex(s) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join(""); }
@@ -156,11 +156,21 @@ async function getOwner() {
   session = { net, client, address, eth: window.ethereum }; $("who").textContent = (net === "studionet" ? "Owner key (throwaway, Studio): " : "Wallet (owner): ") + address; return session;
 }
 function plain(v) { if (v instanceof Map) { const o = {}; for (const [k, x] of v) o[String(k)] = plain(x); return o; } if (typeof v === "bigint") return v.toString(); if (Array.isArray(v)) return v.map(plain); if (v && typeof v === "object") { const o = {}; for (const k of Object.keys(v)) o[k] = plain(v[k]); return o; } return v; }
-async function read(fn, args = []) { await load(); const c = sdk.createClient({ chain: chain() }); return plain(await c.readContract({ address: contract(), functionName: fn, args })); }
+const transient = (e) => /unknown RPC error|timed out|timeout|failed to fetch|network|ECONN|50[234]|rate limit/i.test(String((e && (e.shortMessage || e.message)) || e));
+async function retrying(label, f, tries = 4) { for (let i = 0; ; i++) { try { return await f(); } catch (e) { if (!transient(e) || i >= tries - 1) throw e; say(label + ": the network hiccuped, trying again"); await sleep(2500 * (i + 1)); } } }
+async function read(fn, args = []) { await load(); const c = sdk.createClient({ chain: chain() }); return retrying("read " + fn, async () => plain(await c.readContract({ address: contract(), functionName: fn, args }))); }
 async function send(client, fn, args, label) {
   if (!client.__init) { client.__init = true; try { if (client.initializeConsensusSmartContract) await client.initializeConsensusSmartContract(); } catch (e) { /* not needed on every network */ } }
   say((label || fn) + "..."); const hash = await client.writeContract({ address: contract(), functionName: fn, args, value: 0n });
   await client.waitForTransactionReceipt({ hash, status: ACCEPTED(), retries: 200, interval: 3000 }); say((label || fn) + " accepted"); return hash;
+}
+const safely = async (f) => { try { return await f(); } catch (e) { return false; } };
+async function step(client, fn, args, label, done) {
+  for (let attempt = 0; ; attempt++) {
+    if (done && await safely(done)) { say(label + ": already done"); return; }
+    try { await send(client, fn, args, label); return; }
+    catch (e) { if (!transient(e) || attempt >= 3) throw e; say(label + ": the network hiccuped, checking and trying again"); await sleep(3000 * (attempt + 1)); }
+  }
 }
 async function until(fn, ok, tries = 60, ms = 4000) { let v; for (let i = 0; i < tries; i++) { try { v = await fn(); if (ok(v)) return v; } catch (e) { /* a busy network can fail a read */ } await sleep(ms); } return v; }
 const guard = (id, f) => $(id).addEventListener("click", async () => { const b = $(id); b.disabled = true; try { await f(); } catch (e) { say("ERROR: " + String(e.shortMessage || e.message || e).slice(0, 300)); } finally { b.disabled = false; } });
@@ -212,23 +222,30 @@ async function fundReporters() {
   }
   say("the reporters are funded");
 }
+const planKey = () => "fw.plan." + net + "." + $("addr").value.trim().toLowerCase();
+const loadPlan = () => { try { const p = JSON.parse(localStorage.getItem(planKey())); return p && Array.isArray(p.salts) && Array.isArray(p.claims) && p.salts.length === p.n ? p : null; } catch (e) { return null; } };
+const savePlan = (p) => { try { localStorage.setItem(planKey(), JSON.stringify(p)); } catch (e) {} };
 async function runRound() {
-  await load(); const ks = reporterKeys(); const n = nRep(); const o = await getOwner(); const owner = net === "studionet" ? ks[0] : { client: o.client };
-  const claims = REPORTERS.slice(0, n).map((_, i) => $("scoop" + i).value.trim());
+  await load(); const ks = reporterKeys(); const o = await getOwner(); const owner = net === "studionet" ? ks[0] : { client: o.client };
+  const r0 = await read("get_round"); if (r0.phase === "settled") throw new Error("this round is already settled. Deploy a new round");
+  let plan = loadPlan(); if (Number(r0.count) > 0 && !plan) throw new Error("this round was started somewhere else, so its secret salts are not here. Deploy a new round");
+  if (plan) { $("nRep").value = String(plan.n); drawReporters(); plan.claims.forEach((c, i) => { const t = $("scoop" + i); if (t) t.value = c; }); say("continuing the round that was started, with its original scoops"); }
+  const n = plan ? plan.n : nRep(); const claims = plan ? plan.claims : REPORTERS.slice(0, n).map((_, i) => $("scoop" + i).value.trim());
   if (claims.some((c) => c.length < 12)) throw new Error("every scoop needs at least 12 characters");
+  if (!plan) { plan = { n, claims, salts: claims.map(randomSalt) }; savePlan(plan); }
   if (net === "bradbury") { let short = 0; for (let i = 0; i < n; i++) { const b = await balanceOf(ks[i + 1].address); if (b === null || b < MIN_WEI) { mark(i, "needs test GEN", false); short++; } } if (short) throw new Error("the reporters need test GEN for gas. Press Fund the reporters first"); }
   running = true; drawReporters(); claims.forEach((_, i) => mark(i, "waiting", false));
+  const entryOf = async (i) => { const r = await read("get_round"); for (let k = 0; k < Number(r.count); k++) { const e = await read("get_entry", [BigInt(k)]); if (String(e.author).toLowerCase() === ks[i + 1].address.toLowerCase()) return e; } return null; };
   try {
-    const r0 = await read("get_round"); if (r0.phase !== "commit" || Number(r0.count) !== 0) throw new Error("this round has already started. Deploy a new round");
-    await send(owner.client, "configure", [TOPIC, BigInt(n)], "owner opens the round");
-    const salts = claims.map(randomSalt);
-    for (let i = 0; i < n; i++) { const k = ks[i + 1]; await send(k.client, "commit", [await commitHash(claims[i], salts[i], k.address)], REPORTERS[i][0] + " commits"); mark(i, "committed, scoop hidden", true); }
+    await step(owner.client, "configure", [TOPIC, BigInt(n)], "owner opens the round", async () => { const r = await read("get_round"); return Number(r.limit) === n && r.topic === TOPIC; });
+    for (let i = 0; i < n; i++) { const k = ks[i + 1]; await step(k.client, "commit", [await commitHash(claims[i], plan.salts[i], k.address)], REPORTERS[i][0] + " commits", async () => !!(await entryOf(i))); mark(i, "committed, scoop hidden", true); }
     say("everyone has committed, so the round is now in the reveal phase");
-    for (let i = 0; i < n; i++) { const k = ks[i + 1]; await send(k.client, "reveal", [claims[i], salts[i]], REPORTERS[i][0] + " reveals"); mark(i, "revealed", true); await showRound(); }
-    await send(owner.client, "settle", [], "owner asks the validators to settle");
+    for (let i = 0; i < n; i++) { const k = ks[i + 1]; await step(k.client, "reveal", [claims[i], plan.salts[i]], REPORTERS[i][0] + " reveals", async () => { const e = await entryOf(i); return !!e && e.state !== "committed"; }); mark(i, "revealed", true); await showRound(); }
+    await step(owner.client, "settle", [], "owner asks the validators to settle", async () => (await read("get_round")).phase === "settled");
     const r = await until(() => read("get_round"), (x) => x.phase === "settled", 40, 4000);
     say(r && r.phase === "settled" ? "settled: " + r.unique + " first to report, " + r.duplicates + " duplicate" : "the round did not settle in time. Press Refresh in a minute");
-  } finally { running = false; drawReporters(); await showRound().catch(() => {}); }
+  } catch (e) { say("Stopped. Press Run the whole round again to continue from where it stopped: nothing is done twice."); throw e; }
+  finally { running = false; drawReporters(); await showRound().catch(() => {}); }
 }
 
 // ---------------------------------------------------------------- wiring
