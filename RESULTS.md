@@ -2,48 +2,72 @@
 
 Only what was observed is listed. Open items are marked open.
 
-## Off-chain (contract SHA-256 starting `71d2aa20c90dc67c`, 8,129 bytes)
-- 122 checks pass. 61 of 61 countable mutants killed, with three equivalents documented.
-- 9 fixture checks: the demo reports that should be stopped by plain code are, and the others reach the model.
-- 29 browser checks of the demo page against a simulated chain and a pretend wallet.
-- The test suite found one real flaw while it was being written: a refusal pattern that matched a plain "Status:" line would have rejected honest match reports. It was tightened to match only a quoted key or a direct "record the score as" order, and tests now cover honest pages that say "Status: FT".
-- The mutation test found that two checks cannot be the only one to fail (they duplicate another rule), and the script lists them as equivalent with the reason.
+## Off-chain (contract SHA-256 starting `4e120730e97fef41`, 8,481 bytes)
+- 100 checks pass.
+- 51 of 51 mutants caught. A mutant that allowed a self-reference in the grouping made the chain-resolving loop hang; the loop is now bounded, and a test confirms it cannot hang on a malformed list.
+- The browser's commitment hash and the contract's are identical for four test cases, including accented text and a mixed-case address.
+- The demo page ran a full round (deploy, six commitments, six reveals, settle) against a simulated chain that enforces the contract's rules and recomputes each commitment independently. The simulated chain grouped by a simple rule, so this shows the page and the contract's flow agree, not how the model behaves.
 
-## Studio: all six examples run with real validators (all matched the design)
-Registry `0x31e24aEBd94E02A2B603eB01284471eD39988EdC`, deployed from the page (8,129 bytes, SHA-256 starting `71d2aa20c90dc67c`). Each example was opened and read once; the finished match was also confirmed. Times are the page's clock.
+## First attempt on Studio: stopped by a network error
+Round `0xE12DFFD2b42d960ee86EfdF2bE172601Eb56698E`. Deployed in about five seconds. The owner opened the round, and Ana Rivers' and Tom Hale's commitments were accepted. Priya Nair's commit failed with "An unknown RPC error occurred."
 
-| # | Example | The design predicts | What happened |
-|---|---------|---------------------|---------------|
-| 1 | A finished match (Harbor City v Northgate Rovers) | provisional, then final | **final** (last read: finished) |
-| 2 | A match still being played | stays open, last read: not_finished | open (last read: not_finished) |
-| 3 | A postponed match | stays open, last read: abandoned | open (last read: abandoned) |
-| 4 | A report that contradicts itself | stays open, last read: invalid | open (last read: invalid) |
-| 5 | A report that tries to give orders | stays open, last read: refused | open (last read: refused) |
-| 6 | A report for different teams | stays open, last read: wrong_page | open (last read: wrong_page) |
+- **This was a Studio network error, not a contract refusal.** The contract rejected nothing.
+- The page used at the time stopped at the first error, could not continue, and had not kept the secret salts, so the two committed scoops could never be revealed. That round was abandoned.
+- The page now retries transient errors, checks the chain before every step so nothing is done twice, and saves the scoops and salts in the browser so a stopped run can continue. These changes are tested only against a simulated chain. A real run with the fixed page is still open.
 
-Timing: the first read of the finished match was accepted at 10:11:40 (about 16 seconds after it was sent) and the second, separate read at 10:12:00 (about 16 seconds); it was final at 10:12:02. All 13 transactions took about three and a half minutes (10:11:14 to 10:14:31).
-
-What this shows and does not show:
-- **The model was used for examples 1 to 4.** It correctly told a finished match from one still being played and from a postponed one, and the finished match was read the same way twice, so it became final.
-- **Examples 5 and 6 never reached the model.** Plain code refused the report that gave orders and the report about other teams. They test the contract's rules, not the model.
-- **Example 4 was labelled exploratory before the run**, because the model might have quietly resolved the contradiction instead of reporting it. It did not. The log cannot tell whether its reading failed to add up or failed to parse; both are recorded as `invalid` and change nothing.
-- One read hit a transient network error and was retried automatically.
-- The "design predicts" column is my own prediction made before the run, so a match is evidence the design works as intended, not independent proof. It is **one run of one report each**: it says nothing about how often validators disagree, or about real match reports.
-
-## A real dispute: open
-The page explains how to change a report between the two reads so the second read sees a different result. This has been shown only against a simulated chain. It has not been done on a real network.
-
-## Bradbury: a finished match confirmed to final (worked)
-Registry `0x91E80fFfc5F912A46423ad56bEd6596231D44f59`, deployed from the page with a browser wallet (8,129 bytes, SHA-256 starting `71d2aa20c90dc67c`). Only the finished-match example was run here. Times are the page's clock.
+## Studio: a full round with real validators (worked)
+Contract `0x19516b470D7267f5DA64971C4A36B1281c7D2c4A`, deployed from the page (8,481 bytes, SHA-256 starting `4e120730e97fef41`). Six reporters, each a throwaway key, with invented scoops. Times are the page's clock.
 
 | Time | Event |
 |---|---|
-| 10:25:35 | wallet connected |
-| 10:26:00 | registry deployed (about 25 seconds later) |
-| 10:26:39 | match opened (Harbor City v Northgate Rovers) |
-| 10:27:24 | first read accepted, about 43 seconds after it was sent; the match was provisional |
-| 10:27:50 | second, separate read accepted, about 24 seconds after it was sent |
+| 9:25:42 | round deployed |
+| 9:25:55 | owner opened the round (six reporters) |
+| 9:26:03 to 9:26:57 | six commitments accepted, about eight seconds each; the round moved to the reveal phase when it filled |
+| 9:27:07 to 9:29:34 | six reveals accepted |
+| 9:29:43 | owner asked the validators to settle |
+| 9:29:57 | settle accepted (about 14 seconds) |
+| 9:29:58 | settled: 4 first to report, 2 duplicates |
 
-Result: **FINAL**, Harbor City 3 : 1 Northgate Rovers, two reads, last read "finished". From opening the match to final took about a minute and a half.
+| # | Reporter | Scoop | Result |
+|---|---|---|---|
+| 1 | Ana Rivers | Marco Valenti set to join Harbor City on a five-year deal | FIRST |
+| 2 | Tom Hale | Harbor City agree fee for striker Marco Valenti, medical tomorrow | DUPLICATE OF #1 |
+| 3 | Priya Nair | Kai Okonkwo to Northgate Rovers on loan until June | FIRST |
+| 4 | Leo Brandt | Valenti to Harbor City, here we go! Five year contract | DUPLICATE OF #1 |
+| 5 | Sam Okafor | Kai Okonkwo joins Northgate Rovers permanently for 12m | FIRST |
+| 6 | Jess Moreau | A big club are close to signing a striker | FIRST |
 
-What this shows and does not show: the whole flow works on Bradbury with real validators and a real wallet, and the finished match was read the same way twice. It is **one match**. The other five examples and the real-network dispute were not run on Bradbury.
+The validators' grouping matches the one the demo was designed around: the three Valenti scoops are one story, the loan and the permanent move are separate stories, and the vague rumour is not absorbed into any other.
+
+**The network hiccuped, and the page coped.** About 15 reads failed with transient network errors and were retried. One write, Sam Okafor's reveal, reported a network error, but the page checked the chain, found the reveal had already been applied ("already done"), and moved on without sending it twice. That is the case the resume logic was written for after the first attempt, and it happened for real.
+
+What this shows and does not show:
+- It shows commit, reveal and settle working on a real network, validators reaching consensus on the grouping, the equivalence check accepting it, and credit going to the earlier committer.
+- It is **one run** of six scoops. It says nothing about how often validators disagree, about other wordings, or about longer rounds. From outside, it cannot be told whether the one-entry tolerance was needed.
+- Bradbury has not been run.
+
+## Bradbury: a full round with real validators and a real wallet (worked)
+Contract `0xdb04f22724fB8293eFC53C30CeDeF53EA527690c`, deployed from the page with a browser wallet (8,481 bytes, SHA-256 starting `4e120730e97fef41`). Three reporters, each a throwaway key funded with 0.002 test GEN from the wallet. Times are the page's clock.
+
+| Time | Event |
+|---|---|
+| 9:45:17 | round deployed (about 20 seconds after the click) |
+| 9:45:26 to 9:45:39 | three funding transfers of 0.002 test GEN sent and arrived |
+| 9:46:06 | owner opened the round |
+| 9:46:17 to 9:46:54 | three commitments accepted; the round moved to the reveal phase when it filled |
+| 9:47:09 to 9:47:53 | three reveals accepted |
+| 9:47:57 | owner asked the validators to settle |
+| 9:48:18 | settle accepted (about 21 seconds) |
+| 9:48:19 | settled: 2 first to report, 1 duplicate |
+
+| # | Reporter | Scoop | Result |
+|---|---|---|---|
+| 1 | Ana Rivers | Marco Valenti set to join Harbor City on a five-year deal | FIRST |
+| 2 | Tom Hale | Harbor City agree fee for striker Marco Valenti, medical tomorrow | DUPLICATE OF #1 |
+| 3 | Priya Nair | Kai Okonkwo to Northgate Rovers on loan until June | FIRST |
+
+From deploy to settled took about three minutes. The throwaway reporter keys paid their own gas on Bradbury, so the funding approach works with a real wallet.
+
+**One rough edge.** Right after the deploy the tape showed `ERROR: Requested resource not found.` The page had read the brand-new contract before the network could serve it. It was harmless and the run continued, but it should not appear on a successful deploy. The page now treats that as a transient error and retries the read; a browser check covers it against a simulated chain only.
+
+What this shows and does not show: the whole flow works on Bradbury with real validators and a real wallet, and the grouping is the intended one. It is one run of three scoops. It says nothing about how often validators disagree or about longer rounds.
